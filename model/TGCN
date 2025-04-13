@@ -1,1 +1,80 @@
+import torch
+import torch.nn as nn
+import dgl
+from dgl.nn.pytorch import GraphConv
+import random
+import numpy as np
+def set_random_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+set_random_seed(42)
+
+class GNN(nn.Module):
+    def __init__(self, params):
+        super(GNN, self).__init__()
+        self.DICT_SIZE = params['DICT_SIZE']
+        self.embedding = nn.Embedding(params['DICT_SIZE'], params['EMBED_DIM'])
+        self.conv = GraphConv(params['EMBED_DIM'], params['N_HIDDEN_NODE'], allow_zero_in_degree=True)
+        self.fc = nn.Linear(params['N_HIDDEN_NODE'], 32)   
+        self.out = nn.Linear(32, 1)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, g, x, g_src, x_src, g_tar, x_tar):
+
+        
+        x = self.embedding(x.long())  
+        x_tar = self.embedding(x_tar.long())
+        x_src = self.embedding(x_src.long())
+
+        
+        x = self.conv(g, x)  
+        x = torch.relu(x)  
+
+        x_src = self.conv(g_src, x_src)  
+        x_src = torch.relu(x_src)  
+
+        x_tar = self.conv(g_tar, x_tar)  
+        x_tar = torch.relu(x_tar)  
+
+        
+        g.ndata['h'] = x  
+        x_sum = dgl.sum_nodes(g, 'h')  
+        x_max = dgl.max_nodes(g, 'h')  
+        x_mean = dgl.mean_nodes(g, 'h')
+        x = x_max
+
+        g_src.ndata['h'] = x_src  
+        x_src_sum = dgl.sum_nodes(g_src, 'h')  
+        x_src_max = dgl.max_nodes(g_src, 'h')  
+        x_src_mean = dgl.mean_nodes(g_src, 'h')
+        x_src = x_src_max
+
+        g_tar.ndata['h'] = x_tar  
+        x_tar_sum = dgl.sum_nodes(g_tar, 'h')  
+        x_tar_max = dgl.max_nodes(g_tar, 'h')  
+        x_tar_mean = dgl.mean_nodes(g_tar, 'h')
+        x_tar = x_tar_max
+
+        
+        x = self.fc(x)
+        x_src = self.fc(x_src)
+        x_tar = self.fc(x_tar)
+
+        x_batch_mmd = x
+        x_src_mmd = x_src
+        x_tar_mmd = x_tar
+        
+        x = self.out(x)
+        y_score = self.sigmoid(x)  
+        y_pred = torch.round(y_score)  
+
+        return y_score.view(-1, 1), y_pred.view(-1, 1), x_batch_mmd, x_src_mmd, x_tar_mmd
+
+
+
 
